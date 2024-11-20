@@ -11,6 +11,7 @@ const stock = reactive({
 const pieces = ref([]);
 const nestingSvgs = ref([]); // Stocke les SVGs générés pour chaque imbrication (chaque barre)
 const notNestedPieces = ref([]); // Pièces non imbriquées à cause du manque de stock
+const barRemnants = ref([]); // Stocker les chutes de chaque barre
 
 const startOffset = ref(10); // Offset initial
 const pieceOffset = ref(10); // Offset entre les pièces
@@ -20,7 +21,7 @@ let pieceCount = 1;
 function addPiece() {
   pieces.value.push({
     label: `Pièce #${pieceCount}`,
-    length: 0,
+    length: 100,
     quantity: 1,
     color: getRandomColor(),
   });
@@ -42,8 +43,7 @@ function getRandomColor() {
   return color;
 }
 
-
-
+// Fonction principale pour imbrication des pièces
 function placePiecesInStock() {
   let remainingStock = stock.length * stock.quantity; // Stock restant disponible (global)
   let svgResults = [];
@@ -51,12 +51,14 @@ function placePiecesInStock() {
   let currentBarStock = stock.length; // Stock disponible pour une barre actuelle
   let currentOffsetX = startOffset.value; // L'offset commence à la valeur d'origine
 
-  // Réinitialiser les pièces non imbriquées
+  // Réinitialiser les pièces non imbriquées et les chutes
   notNestedPieces.value = [];
+  barRemnants.value = [];
 
+  let barsUsed = 0;
 
   while (remainingPieces.length > 0 && remainingStock > 0) {
-  
+
     watchEffect(() => {
       console.log('remainingStock:', remainingStock);
       console.log('remainingPieces:', remainingPieces);
@@ -65,13 +67,12 @@ function placePiecesInStock() {
     if (remainingStock < remainingPieces.length) break; // Stopper si plus de stock global
     if (remainingStock < stock.length) break; // Stopper si stock insuffisant pour une barre
 
+
     let usedLength = 0; // Longueur utilisée de la barre actuelle
-    
     let currentSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100" viewBox="0 0 ${stock.length} ${stock.width}">`;
     currentSvg += `<rect x="0" y="0" width="${stock.length}" height="${stock.width}" fill="lightgrey" stroke="black" stroke-width="2" />`;
 
     let svgDetails = [];
-
     // Trier les pièces par taille (du plus grand au plus petit)
     const sortedPieces = remainingPieces.sort((a, b) => b.length - a.length);
     let newRemainingPieces = [];
@@ -102,7 +103,7 @@ function placePiecesInStock() {
         quantityPlaced++;
         currentBarStock -= piece.length;
         remainingStock -= piece.length;
-        usedLength += piece.length; 
+        usedLength += piece.length;
         svgDetails.push(`${piece.label} : ${quantityPlaced}/${piece.quantity}`);
       }
 
@@ -111,12 +112,8 @@ function placePiecesInStock() {
         // Rechercher si la pièce existe déjà dans newRemainingPieces
         let existingPiece = newRemainingPieces.find(p => p.label === piece.label && p.length === piece.length);
         if (existingPiece) {
-          // Si la pièce existe, on met à jour la quantité restante
-          existingPiece.quantity = piece.quantity - quantityPlaced;
-          
-          //console.log('piece.quantity:', piece.quantity);
-          //console.log('quantityPlaced:', quantityPlaced);
-          //console.log('existingPiece.quantity:', existingPiece.quantity);
+         // Si la pièce existe, on met à jour la quantité restante
+         existingPiece.quantity = piece.quantity - quantityPlaced;
         } else {
           // Sinon, on ajoute une nouvelle entrée avec la quantité restante
           newRemainingPieces.push({ ...piece, quantity: piece.quantity - quantityPlaced });
@@ -126,8 +123,8 @@ function placePiecesInStock() {
 
     currentSvg += `</svg>`;
 
-    // Calculer le taux d'utilisation de la barre
     let usageRate = (usedLength / stock.length) * 100;
+    let barRemainder = stock.length - usedLength; // Calcul de la chute de la barre actuelle
 
     svgResults.push({
       svg: currentSvg,
@@ -136,14 +133,22 @@ function placePiecesInStock() {
       details: svgDetails,
     });
 
+    // Ajouter la chute de la barre dans la liste
+    barRemnants.value.push({
+      bar: barsUsed + 1,
+      remainder: barRemainder,
+    });
+
+    barsUsed++; // Incrémenter le compteur de barres utilisées
+
+    
     // Réinitialiser les variables pour la prochaine barre
     currentOffsetX = startOffset.value;
     currentBarStock = stock.length;
-    // Mettre à jour remainingPieces avec les pièces restantes
+     // Mettre à jour remainingPieces avec les pièces restantes
     remainingPieces = newRemainingPieces;
   }
 
-  // Filtrer les pièces avec des quantités non nulles
   notNestedPieces.value = remainingPieces.filter(piece => piece.quantity > 0);
   nestingSvgs.value = svgResults;
 }
@@ -174,7 +179,7 @@ function downloadAllSVGs() {
       <div class="form-group" style="display: flex; flex-direction: column; gap: 20px;">
         <div style="display: flex;">
           <div style="flex: 1;">
-            <label for="stock.idth">Largeur :</label>
+            <label for="stock.width">Largeur :</label>
             <input v-model="stock.width" type="text" />
           </div>
           <div style="flex: 1; margin-right: 10px;">
@@ -182,12 +187,11 @@ function downloadAllSVGs() {
             <input v-model="stock.length" type="number" required />
           </div>
           <div style="flex: 1; margin-right: 10px;">
-            <label for="stock.length">Quantité de stock :</label>
+            <label for="stock.quantity">Quantité de stock :</label>
             <input v-model="stock.quantity" type="number" required />
           </div>
         </div>
       </div>
-
 
       <button @click="addPiece" type="button">Ajouter une pièce</button>
 
@@ -215,6 +219,7 @@ function downloadAllSVGs() {
         <button @click="removePiece(index)" type="button">Supprimer</button>
       </div>
       <hr>
+
       <div class="form-group">
         <label for="startOffset">Offset de début (mm) :</label>
         <input v-model="startOffset" type="number" required />
@@ -228,37 +233,30 @@ function downloadAllSVGs() {
       <button type="submit">Générer le Nesting</button>
     </form>
 
-    <div v-if="nestingSvgs.length > 0" style="display: flex; justify-content: space-between;">
-      <div style="flex: 1; margin-right: 10px;">
-        <button @click="printContent">Imprimer le contenu</button>
+    <div v-if="nestingSvgs.length > 0">
+      <h2>Résultat du Nesting</h2>
+      <h3>Barres utilisées : {{ nestingSvgs.length }}</h3>
+
+      <div v-for="(svgResult, index) in nestingSvgs" :key="index">
+        <h3>Barre #{{ index + 1 }} - Taux d'utilisation : {{ svgResult.usageRate }}%</h3>
+        <div v-html="svgResult.svg"></div>
       </div>
-      <div style="flex: 1; margin-right: 10px;">
-        <button @click="downloadAllSVGs">Télécharger les SVGs</button>
-      </div>
+
+      <h3>Liste des chutes</h3>
+      <ul>
+        <li v-for="(bar, index) in barRemnants" :key="index">
+          Barre #{{ bar.bar }} : Chute de {{ bar.remainder }} mm
+        </li>
+      </ul>
+
+      <button @click="downloadAllSVGs">Télécharger les SVGs</button>
     </div>
 
-    <div v-if="nestingSvgs.length > 0" class="nesting-container" ref="printableContent">
-      <h2 class="title">Résultat du Nesting :</h2>
-      <div v-for="(svgResult, index) in nestingSvgs" :key="index" class="nesting-item">
-        <!-- Ajouter un titre pour chaque barre -->
-        <div class="bar-title">
-          <h3>Barre {{ index + 1 }} - x: {{ stock.length }} mm, y: {{ stock.width }} mm</h3>
-          <p class="usage-rate">Taux d'utilisation de la barre : {{ svgResult.usageRate }}%</p>
-        </div>
-        <div class="svg-container" v-html="svgResult.svg"></div>
-        <div class="details">
-          <p class="quantity-title">Quantités imbriquées :</p>
-          <span class="quantity-details" v-html="svgResult.details.join('<br>')"></span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Message si le stock est insuffisant -->
     <div v-if="notNestedPieces.length > 0">
-      <p style="color: red;">Certaines pièces n'ont pas pu être imbriquées à cause du manque de stock :</p>
+      <h2>Pièces non imbriquées</h2>
       <ul>
         <li v-for="(piece, index) in notNestedPieces" :key="index">
-          {{ piece.label }} - Quantité non imbriquée : {{ piece.quantity }}
+          {{ piece.label }} : {{ piece.quantity }} pièce(s) restante(s)
         </li>
       </ul>
     </div>
