@@ -2,21 +2,29 @@
 import { ref, reactive } from 'vue';
 import { watchEffect } from 'vue';
 
-const stock = reactive({
-  length: 6000, // Longueur du stock en mm
-  width: 50,    // Largeur du stock en mm
-  quantity: 1,  // Quantité de stock (nombre de barres disponibles)
-});
-
-const pieces = ref([]);
-const nestingSvgs = ref([]); // Stocke les SVGs générés pour chaque imbrication (chaque barre)
+const stocks = ref([]); // Stocke les différents profilés
+const pieces = ref([]); // Stocke les pièces à imbriquer
+const nestingSvgs = ref([]); // Stocke les SVGs générés pour chaque imbrication (chaque profilé)
 const notNestedPieces = ref([]); // Pièces non imbriquées à cause du manque de stock
 const barRemnants = ref([]); // Stocker les chutes de chaque barre
-
 const startOffset = ref(10); // Offset initial
 const pieceOffset = ref(10); // Offset entre les pièces
 
-// Ajouter une pièce avec une couleur aléatoire par défaut
+// Ajouter un profilé avec une taille par défaut
+function addStock() {
+  stocks.value.push({
+    length: 6000, // Longueur par défaut en mm
+    width: 100,    // Largeur par défaut en mm
+    quantity: 1,  // Quantité de stock
+  });
+}
+
+// Supprimer un profilé
+function removeStock(index) {
+  stocks.value.splice(index, 1);
+}
+
+// Ajouter une pièce avec une couleur aléatoire
 let pieceCount = 1;
 function addPiece() {
   pieces.value.push({
@@ -43,23 +51,26 @@ function getRandomColor() {
   return color;
 }
 
-// Fonction principale pour imbrication des pièces
+// Fonction principale pour imbriquer les pièces dans les stocks
 function placePiecesInStock() {
-  let remainingStock = stock.length * stock.quantity; // Stock restant disponible (global)
-  let svgResults = [];
-  let remainingPieces = [...pieces.value]; // Les pièces restantes à imbriquer
-  let currentBarStock = stock.length; // Stock disponible pour une barre actuelle
-  let currentOffsetX = startOffset.value; // L'offset commence à la valeur d'origine
-
-  // Réinitialiser les pièces non imbriquées et les chutes
+  let remainingPieces = [...pieces.value]; // Copie des pièces restantes à imbriquer
+  nestingSvgs.value = [];
   notNestedPieces.value = [];
   barRemnants.value = [];
 
-  let barsUsed = 0;
+  // Parcourir chaque stock pour imbriquer les pièces
+  stocks.value.forEach((stock, stockIndex) => {
+    let remainingStock = stock.length * stock.quantity; // Stock total disponible pour ce profilé
+    let currentOffsetX = startOffset.value; // Position de départ pour chaque barre
+    let svgResults = []; // Pour stocker les SVGs
+    let currentBarStock = stock.length; // Stock actuel pour la barre en cours d'utilisation
 
-  while (remainingPieces.length > 0 && remainingStock > 0) {
+    let barsUsed = 0;
+    let usedLength = 0;
 
-    watchEffect(() => {
+    while (remainingPieces.length > 0 && remainingStock > 0) {
+
+      watchEffect(() => {
       console.log('remainingStock:', remainingStock);
       console.log('remainingPieces:', remainingPieces);
     });
@@ -68,21 +79,22 @@ function placePiecesInStock() {
     if (remainingStock < stock.length) break; // Stopper si stock insuffisant pour une barre
 
 
-    let usedLength = 0; // Longueur utilisée de la barre actuelle
-    let currentSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100" viewBox="0 0 ${stock.length} ${stock.width}">`;
-    currentSvg += `<rect x="0" y="0" width="${stock.length}" height="${stock.width}" fill="lightgrey" stroke="black" stroke-width="2" />`;
 
-    let svgDetails = [];
-    // Trier les pièces par taille (du plus grand au plus petit)
-    const sortedPieces = remainingPieces.sort((a, b) => b.length - a.length);
-    let newRemainingPieces = [];
+      let currentSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100" viewBox="0 0 ${stock.length} ${stock.width}">`;
+      currentSvg += `<rect x="0" y="0" width="${stock.length}" height="${stock.width}" fill="lightgrey" stroke="black" stroke-width="2" />`;
 
-    sortedPieces.forEach(piece => {
-      let quantityPlaced = 0;
+      let svgDetails = [];
 
-      for (let i = 0; i < piece.quantity; i++) {
-        // Si la pièce ne tient pas dans la barre, on arrête
-        if (currentOffsetX + piece.length > stock.length) {
+      // Trier les pièces par longueur (du plus grand au plus petit)
+      const sortedPieces = remainingPieces.sort((a, b) => b.length - a.length);
+      let newRemainingPieces = [];
+
+      sortedPieces.forEach(piece => {
+        let quantityPlaced = 0;
+
+        for (let i = 0; i < piece.quantity; i++) {
+          // Si la pièce ne tient pas dans la barre actuelle, passer à la suivante
+          if (currentOffsetX + piece.length > stock.length) {
           // Mettre à jour la quantité restante dans la même entrée
           let existingPiece = newRemainingPieces.find(p => p.label === piece.label && p.length === piece.length);
           if (existingPiece) {
@@ -93,22 +105,21 @@ function placePiecesInStock() {
           break;
         }
 
-        // Ajouter la pièce dans la barre (SVG)
-        currentSvg += `<rect x="${currentOffsetX}" y="0" width="${piece.length}" height="${stock.width}" fill="${piece.color}" stroke="black" stroke-width="1" />`;
-        let textX = currentOffsetX + (piece.length / 2);
-        currentSvg += `<text x="${textX}" y="${stock.width / 2}" font-size="${stock.width / 2}" text-anchor="middle" alignment-baseline="middle" fill="black">${piece.label} (${piece.length}mm)</text>`;
+          // Ajouter la pièce dans le SVG de la barre
+          currentSvg += `<rect x="${currentOffsetX}" y="0" width="${piece.length}" height="${stock.width}" fill="${piece.color}" stroke="black" stroke-width="1" />`;
+          let textX = currentOffsetX + (piece.length / 2);
+          currentSvg += `<text x="${textX}" y="${stock.width / 2}" font-size="${stock.width / 2}" text-anchor="middle" alignment-baseline="middle" fill="black">${piece.label} (${piece.length}mm)</text>`;
 
-        // Mettre à jour la position et les stocks
-        currentOffsetX += piece.length + pieceOffset.value;
-        quantityPlaced++;
-        currentBarStock -= piece.length;
-        remainingStock -= piece.length;
-        usedLength += piece.length;
-        svgDetails.push(`${piece.label} : ${quantityPlaced}/${piece.quantity}`);
-      }
+          // Mettre à jour l'offset, le stock et le compteur de pièces placées
+          currentOffsetX += piece.length + pieceOffset.value;
+          quantityPlaced++;
+          currentBarStock -= piece.length;
+          remainingStock -= piece.length;
+          usedLength += piece.length;
+          svgDetails.push(`${piece.label} : ${quantityPlaced}/${piece.quantity}`);
+        }
 
-      // Si des pièces n'ont pas pu être imbriquées, on les ajoute à newRemainingPieces
-      if (quantityPlaced < piece.quantity) {
+        if (quantityPlaced < piece.quantity) {
         // Rechercher si la pièce existe déjà dans newRemainingPieces
         let existingPiece = newRemainingPieces.find(p => p.label === piece.label && p.length === piece.length);
         if (existingPiece) {
@@ -117,40 +128,37 @@ function placePiecesInStock() {
         } else {
           // Sinon, on ajoute une nouvelle entrée avec la quantité restante
           newRemainingPieces.push({ ...piece, quantity: piece.quantity - quantityPlaced });
-        }
-      }
+        }}
+      });
+
+      currentSvg += `</svg>`;
+      let usageRate = (usedLength / stock.length) * 100;
+      let barRemainder = stock.length - usedLength;
+
+      svgResults.push({
+        svg: currentSvg,
+        totalLength: stock.length,
+        usageRate: usageRate.toFixed(2),
+        details: svgDetails,
+      });
+
+      barRemnants.value.push({
+        bar: barsUsed + 1,
+        remainder: barRemainder,
+      });
+
+      barsUsed++;
+      currentOffsetX = startOffset.value;
+      remainingPieces = newRemainingPieces;
+    }
+
+    nestingSvgs.value.push({
+      stockIndex: stockIndex + 1,
+      svgs: svgResults,
     });
-
-    currentSvg += `</svg>`;
-
-    let usageRate = (usedLength / stock.length) * 100;
-    let barRemainder = stock.length - usedLength; // Calcul de la chute de la barre actuelle
-
-    svgResults.push({
-      svg: currentSvg,
-      totalLength: stock.length,
-      usageRate: usageRate.toFixed(2),
-      details: svgDetails,
-    });
-
-    // Ajouter la chute de la barre dans la liste
-    barRemnants.value.push({
-      bar: barsUsed + 1,
-      remainder: barRemainder,
-    });
-
-    barsUsed++; // Incrémenter le compteur de barres utilisées
-
-    
-    // Réinitialiser les variables pour la prochaine barre
-    currentOffsetX = startOffset.value;
-    currentBarStock = stock.length;
-     // Mettre à jour remainingPieces avec les pièces restantes
-    remainingPieces = newRemainingPieces;
-  }
+  });
 
   notNestedPieces.value = remainingPieces.filter(piece => piece.quantity > 0);
-  nestingSvgs.value = svgResults;
 }
 
 // Soumettre les données et générer les imbrications
@@ -162,103 +170,128 @@ function submitData() {
 
 // Télécharger tous les SVGs générés
 function downloadAllSVGs() {
-  nestingSvgs.value.forEach((svgResult, index) => {
-    const blob = new Blob([svgResult.svg], { type: 'image/svg+xml' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `nesting-result-${index + 1}.svg`;
-    link.click();
+  nestingSvgs.value.forEach((svgGroup, index) => {
+    svgGroup.svgs.forEach((svgResult, svgIndex) => {
+      const blob = new Blob([svgResult.svg], { type: 'image/svg+xml' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `nesting-result-stock-${svgGroup.stockIndex}-bar-${svgIndex + 1}.svg`;
+      link.click();
+    });
   });
 }
 </script>
 
 <template>
   <div id="app">
-    <h1>Imbrication de profils</h1>
-    <form @submit.prevent="submitData">
-      <div class="form-group" style="display: flex; flex-direction: column; gap: 20px;">
-        <div style="display: flex;">
-          <div style="flex: 1;">
-            <label for="stock.width">Largeur :</label>
-            <input v-model="stock.width" type="text" />
-          </div>
-          <div style="flex: 1; margin-right: 10px;">
-            <label for="stock.length">Longueur du stock (mm) :</label>
-            <input v-model="stock.length" type="number" required />
-          </div>
-          <div style="flex: 1; margin-right: 10px;">
-            <label for="stock.quantity">Quantité de stock :</label>
-            <input v-model="stock.quantity" type="number" required />
-          </div>
+    <h2>Imbrication de profils</h2>
+
+    <h3>Profilés (Stocks)</h3>
+
+    <button @click="addStock" type="button" class="button">Ajouter un profilé</button>
+    <div v-for="(stock, index) in stocks" :key="index"  class="profil-form">
+        <div style="flex: 1; margin-right: 10px;">
+          <label for="stock.width">Largeur du profil :</label>
+          <input v-model="stock.width" type="number" required />
         </div>
-      </div>
-
-      <button @click="addPiece" type="button">Ajouter une pièce</button>
-
-      <div v-for="(piece, index) in pieces" :key="index" class="piece-form">
-        <div class="form-group">
-          <label>Label de la pièce :</label>
-          <input v-model="piece.label" type="text" required />
+        <div style="flex: 1; margin-right: 10px;">
+          <label for="stock.length">Longueur du stock (mm) :</label>
+          <input v-model="stock.length" type="number" required />
         </div>
-
-        <div class="form-group">
-          <label>Longueur (mm) :</label>
-          <input v-model="piece.length" type="number" required />
+        <div style="flex: 1; margin-right: 10px;">
+          <label for="stock.quantity">Quantité de stock :</label>
+          <input v-model="stock.quantity" type="number" required />
         </div>
+        <button @click="removeStock(index)" type="button">Supprimer le profilé</button>
+    </div>
 
-        <div class="form-group">
-          <label>Quantité :</label>
-          <input v-model="piece.quantity" type="number" required />
-        </div>
+    <h3>Pièces</h3>
 
-        <div class="form-group">
-          <label>Couleur :</label>
-          <input v-model="piece.color" type="color" class="color-picker" />
-        </div>
-
-        <button @click="removePiece(index)" type="button">Supprimer</button>
-      </div>
-      <hr>
-
+    <button @click="addPiece" type="button">Ajouter une pièce</button>
+    <div v-for="(piece, index) in pieces" :key="index" class="piece-form">
       <div class="form-group">
-        <label for="startOffset">Offset de début (mm) :</label>
+        <label>Label de la pièce :</label>
+        <input v-model="piece.label" type="text" required />
+      </div>
+      <div class="form-group">
+        <label>Longueur (mm) :</label>
+        <input v-model="piece.length" type="number" required />
+      </div>
+      <div class="form-group">
+        <label>Quantité :</label>
+        <input v-model="piece.quantity" type="number" required />
+      </div>
+      <div class="form-group">
+        <label>Couleur :</label>
+        <input v-model="piece.color" type="color" class="color-picker" />
+      </div>
+      <button @click="removePiece(index)" type="button">Supprimer</button>
+    </div>
+
+    
+    <h3>Ecarts</h3>
+
+    <div class="piece-form">
+      <div class="form-group">
+        <label  for="startOffset">Offset de début (mm) :</label>
         <input v-model="startOffset" type="number" required />
       </div>
-
       <div class="form-group">
         <label for="pieceOffset">Offset entre les pièces (mm) :</label>
         <input v-model="pieceOffset" type="number" required />
       </div>
-
-      <button type="submit">Générer le Nesting</button>
-    </form>
-
-    <div v-if="nestingSvgs.length > 0">
-      <h2>Résultat du Nesting</h2>
-      <h3>Barres utilisées : {{ nestingSvgs.length }}</h3>
-
-      <div v-for="(svgResult, index) in nestingSvgs" :key="index">
-        <h3>Barre #{{ index + 1 }} - Taux d'utilisation : {{ svgResult.usageRate }}%</h3>
-        <div v-html="svgResult.svg"></div>
-      </div>
-
-      <h3>Liste des chutes</h3>
-      <ul>
-        <li v-for="(bar, index) in barRemnants" :key="index">
-          Barre #{{ bar.bar }} : Chute de {{ bar.remainder }} mm
-        </li>
-      </ul>
-
-      <button @click="downloadAllSVGs">Télécharger les SVGs</button>
     </div>
 
-    <div v-if="notNestedPieces.length > 0">
-      <h2>Pièces non imbriquées</h2>
-      <ul>
-        <li v-for="(piece, index) in notNestedPieces" :key="index">
-          {{ piece.label }} : {{ piece.quantity }} pièce(s) restante(s)
-        </li>
-      </ul>
+    <button @click="submitData" type="button">Imbriquer les pièces dans les stocks</button>
+
+
+    <hr>
+
+    <div v-if="nestingSvgs.length > 0" style="display: flex; justify-content: space-between;">
+      <div style="flex: 1; margin-right: 10px;">
+        <button @click="printContent">Imprimer le contenu</button>
+      </div>
+      <div style="flex: 1; margin-right: 10px;">
+        <button @click="downloadAllSVGs">Télécharger les SVGs</button>
+      </div>
+    </div>
+
+    <div ref="printableContent">
+      <h2>Résultats de l'imbrication</h2>
+      <div v-for="(svgGroup, index) in nestingSvgs" :key="index" class="nesting-container" >
+        <h3>Stock #{{ svgGroup.stockIndex }}</h3>
+        <div v-for="(svgResult, svgIndex) in svgGroup.svgs" :key="svgIndex" class="nesting-item">
+        <!-- Ajouter un titre pour chaque barre -->
+          <h4>Barre {{ svgIndex + 1 }} - Utilisation : {{ svgResult.usageRate }}%</h4>
+          <div class="svg-container" v-html="svgResult.svg"></div>
+          
+          <div class="details">
+            <p class="quantity-title">Quantités imbriquées :</p>
+            <ul>
+              <li v-for="detail in svgResult.details" :key="detail">{{ detail }}</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="nestingSvgs.length > 0" class="remants-container">
+        <!-- Message si le stock est insuffisant -->
+        <div v-if="notNestedPieces.length > 0">
+          <p style="color: red;">Certaines pièces n'ont pas pu être imbriquées à cause du manque de stock :</p>
+          <ul>
+            <li v-for="(piece, index) in notNestedPieces" :key="index">
+              {{ piece.label }} - Quantité non imbriquée : {{ piece.quantity }}
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div v-if="nestingSvgs.length > 0" class="remants-container">
+        <h2>Chutes de barres</h2>
+        <ul>
+          <li v-for="remnant in barRemnants" :key="remnant.bar">Barre {{ remnant.bar }} : Chute de {{ remnant.remainder }} mm</li>
+        </ul>
+      </div>
     </div>
   </div>
 </template>
@@ -296,8 +329,13 @@ export default {
 
 <style scoped>
 #app {
-  font-family: Arial, sans-serif;
   padding: 20px;
+  height: 100%;
+  align-items: center;
+  font-family: 'Roboto', sans-serif;
+  background: linear-gradient(135deg, #0d0d0d 0%, #1e293b 100%);
+  color: #fff;
+  text-align: center;
 }
 
 h1 {
@@ -310,12 +348,12 @@ h2 {
   margin-top: 20px;
 }
 
-form {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-  margin-bottom: 20px;
+h3 {
+  font-size: 1.5rem;
+  margin-top: 20px;
 }
+
+
 
 .form-group {
   display: flex;
@@ -341,34 +379,41 @@ button {
 }
 
 button:hover {
-  background-color: #45a049;
+  background-color: #a7803a;
 }
 
 .piece-form {
   display: flex;
   gap: 10px;
   align-items: center;
+  padding: 20px;
+  border-radius: 8px;
+  background-color: #7fc1ca;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin: 20px auto;
 }
 
 .piece-form input {
   width: 150px;
 }
 
-button[type="button"] {
-  background-color: #e53935;
+.profil-form {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 20px;
+  border-radius: 8px;
+  background-color: #9da59d;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin: 20px auto;
 }
 
-button[type="button"]:hover {
-  background-color: #c62828;
+.profil-form input {
+  width: 150px;
 }
 
-button[type="submit"] {
-  background-color: #2196F3;
-}
 
-button[type="submit"]:hover {
-  background-color: #1976D2;
-}
+
 .color-picker {
   border: none; /* Enlève la bordure */
   width: 40px;   /* Taille pour rendre le champ carré */
@@ -376,12 +421,22 @@ button[type="submit"]:hover {
   padding: 0;
   cursor: pointer; /* Ajoute un curseur pour indiquer que c'est cliquable */
 }
+
 .nesting-container {
-  background-color: #f9f9f9;
+  background-color: #000000;
   padding: 20px;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   margin: 20px auto;
+}
+
+.remants-container {
+  background-color: #000000;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin: 20px auto;
+  text-align: left;
 }
 
 .title {
@@ -393,7 +448,7 @@ button[type="submit"]:hover {
 }
 
 .nesting-item {
-  background-color: #fff;
+  background-color: #1e293b;
   border-radius: 8px;
   padding: 15px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
@@ -407,22 +462,13 @@ button[type="submit"]:hover {
 
 .details {
   font-size: 1rem;
-  color: #555;
+  color: #ffffff;
+  text-align: left;
 }
 
 .quantity-title {
   font-weight: bold;
   color: #007BFF;
-}
-
-.quantity-details {
-  font-size: 0.95rem;
-  line-height: 1.5;
-}
-
-.divider {
-  margin-top: 15px;
-  border: 1px solid #e0e0e0;
 }
 
 @media print {
